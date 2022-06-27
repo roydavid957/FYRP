@@ -1,2 +1,7 @@
 # FYRP
 EEG of Monks
+
+EEG analysis of analytic meditation
+
+## Abstract
+Monastic debate may best be regarded as a form of analytical meditation. Where it differs from Western-style debate, where the main objective is to convince the opponent, in that it is driven by the consequences of arguments/statements. Previous work suggests that over the course of monastic debate, mid-frontal theta oscillations increases significantly. This shows similarities with previous EEG studies on meditation, which suggests that theta and alpha band activity seems affected by meditation. Where power seems to increase in theta and alpha bands during meditation. In this study we compared 3 different meditation practices (monastic debate, self-debate and mindfulness), to determine their effect on mid-frontal (electrode Fz) 4-9 Hz theta power and mid-occipital (electrode Oz) 9-14 Hz alpha power, using several different regression models. From our analysis we get different results for both mid-frontal theta and mid-occipital alpha oscillations. Where for mid-occipital alpha oscillations we see that monastic debate is different from the other forms of meditation (self-debate, mindfulness). However we did not see the same for mid-frontal theta oscillations, where only 1/2 monastic debate related conditions differed from self-debate, all other conditions were similar in terms of power over time. We did see some common ground in that self-debate and mindfulness appear to be similar for both mid-frontal theta and mid-occipital alpha.
