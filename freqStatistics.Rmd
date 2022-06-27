@@ -1,0 +1,801 @@
+---
+title: "EEG Monks Statistics"
+author: "Roy David s2764989"
+date: "6/2/2022"
+output: html_document
+bibliography: ["r-references.bib"]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+getwd()
+```
+
+```{r}
+library(ggplot2)
+library(plyr)
+library(plotfunctions)
+library(lme4)    # for LME
+library(mgcv)
+library(itsadug)
+R.version.string
+packageVersion("lme4")
+```
+
+# Results
+
+We did an analysis on mid-frontal (Fz) theta power and mid-occiptal (Oz) alpha power.
+
+## Data
+We used independent component analysis (ICA) to remove components that captured movement artifacts, which have a time course very different from normal EEG (and are therefore well-captured by ICA). We low-pass-filtered the data, since movement artifacts tend to show up predominantly at higher frequencies. We resampled the data to 256 Hz for usability and redefined the "trials" to 15 seconds to better capture the signal-trends over time. All of this was done using the FieldTrip toolbox (@oostenveld2011fieldtrip) There are 12 subjects in a within subject experiment design with 4 conditions and 2 modes, where we focused on a section of the entire dataset. The conditions are coded as follows: hard=1, easy=2, reflection=3, singlepointed=4. The modes/roles are coded as follows: challenger=1, defender=0. Time is in minutes. Power has been log10 transformed.
+
+Analysis performed in script continousFreqAnalysis.m 
+
+# Mid-frontal theta/mid-occipital alpha as a measure of absorption
+Mid-frontal 4—9Hz theta power and/or mid-occipital 9-13Hz alpha power could increase over the course of the debate, as the monastics’ attention becomes more strongly internally directed to the flow of the arguments. Moreover, since this internally-directed attention cannot increase indefinitely, it should flatten off towards the end of the debate. We examined whether mid-frontal 4—9Hz theta power in electrode Fz (biosemi channel 31) and mid-occipital 9-13Hz alpha power in electrode Oz were different across the different (analytical) meditation forms.
+
+## PART I: Data
+
+```{r}
+setwd("/Users/roydavid/Downloads/Monks/")
+#dat <- read.csv(file = 'FzthetapowerAll_A31.csv')
+dat <- read.csv(file = 'powspecAll_log10.csv')
+head(dat)
+```
+
+Remove NAs, subset to limit all conditions to 5 min for consistency for all conditions. (Caveat might be that some conditions duration were a lot longer than 5 min; Cutting the conditional "trial" short might affect overall power trend)
+
+```{r}
+dat2 <- dat[complete.cases(dat),]
+dat2 <- dat2[dat2$time<=4.75,]
+dat2$subject <- as.factor(dat2$subject)
+dat2$mode <- as.factor(dat2$mode)
+levels(dat2$mode) <- c("defender", "challenger")
+dat2$condition <- as.factor(dat2$condition)
+levels(dat2$condition) <- c("hard", "easy", "reflection", "singlepointed")
+head(dat2)
+```
+
+Summary: the structure of the data is a long table. There are 12 different subjects included in the data. This is a within subjects design since subjects participated in all 4 conditions.
+
+```{r}
+avgSubj <- ddply(dat2, c("subject", "condition", "mode"), summarise,
+                 meanPowFz = mean(thetapower, na.rm=TRUE),
+                 meanPowOz = mean(alphapower, na.rm=TRUE))
+head(avgSubj)
+
+avgCon <- ddply(avgSubj, c("mode", "condition"), summarise,
+                SEFz = se(meanPowFz),
+                meanPowFz = mean(meanPowFz),
+                SEOz = se(meanPowOz),
+                meanPowOz = mean(meanPowOz))
+head(avgCon)
+```
+
+```{r}
+#par(mfrow=c(1,2))
+boxplot(avgSubj$meanPowFz ~ avgSubj$subject, xlab="Subject", ylab="Mean Theta Power", main="Average Power per Subject")
+
+boxplot(avgSubj$meanPowOz ~ avgSubj$subject, xlab="Subject", ylab="Mean Alpha Power", main="Average Power per Subject")
+```
+
+From these plots we can clearly see some individual variation in terms of power. We therefore have to take this into account in our model (i.e. by using random intercepts for each subject). This could be done by using a LME or GAMM model.
+
+```{r}
+# Fz
+# Default bar plot
+p<- ggplot(avgCon, aes(x=paste(condition), y=meanPowFz, fill=mode)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  geom_errorbar(aes(ymin=meanPowFz-SEFz, ymax=meanPowFz+SEFz), width=.2,
+                 position=position_dodge(.9)) 
+
+# Finished bar plot
+p+labs(title="avg theta power per condition", x="Condition", y = "Power") + scale_y_reverse()
+
+# Oz
+# Default bar plot
+p2<- ggplot(avgCon, aes(x=paste(condition), y=meanPowOz, fill=mode)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  geom_errorbar(aes(ymin=meanPowOz-SEOz, ymax=meanPowOz+SEOz), width=.2,
+                 position=position_dodge(.9)) 
+
+# Finished bar plot
+p2+labs(title="avg alpha power per condition", x="Condition", y = "Power") + scale_y_reverse()
+```
+
+Differences between conditions and roles.
+
+```{r}
+avgTime <- ddply(dat2, c("time", "condition"), summarise,
+      meanPowFz = mean(thetapower, na.rm=TRUE),
+      meanPowOz = mean(alphapower, na.rm=TRUE))
+
+head(avgTime)
+```
+
+```{r}
+# setup empty plot:
+emptyPlot(c(0,5), range(avgTime$meanPowFz), # x-range, y-range plot
+          main="avg theta power per condition", # title
+          xlab="time (min)", ylab="power", # labels axes
+           )
+
+lines(unique(avgTime$time),
+      avgTime[avgTime$condition=="hard",]$meanPowFz,
+      lwd=1.5,
+      bg='white', 
+      col=2)
+
+lines(unique(avgTime$time),
+      avgTime[avgTime$condition=="easy",]$meanPowFz,
+      lwd=1.5,
+      bg='white', 
+      col=3)
+
+lines(unique(avgTime$time),
+      avgTime[avgTime$condition=="reflection",]$meanPowFz,
+      lwd=1.5,
+      bg='white', 
+      col=4)
+
+lines(unique(avgTime$time),
+      avgTime[avgTime$condition=="singlepointed",]$meanPowFz,
+      lwd=1.5,
+      bg='white', 
+      col=5)
+
+endpoints <- c(tail(avgTime[avgTime$condition=="hard",]$meanPowFz,n=1),
+               tail(avgTime[avgTime$condition=="easy",]$meanPowFz,n=1),
+               tail(avgTime[avgTime$condition=="reflection",]$meanPowFz,n=1),
+               tail(avgTime[avgTime$condition=="singlepointed",]$meanPowFz,n=1))
+
+# add legend:
+leg <- tapply(avgTime$meanPowFz, list(avgTime$condition), mean)
+text(c(5,5,5,5), endpoints,  labels=names(leg), 
+     adj=0, col=c(2,3,4,5), cex=.85, xpd=TRUE)
+
+```
+
+```{r}
+# setup empty plot:
+emptyPlot(c(0,5), range(avgTime$meanPowOz), # x-range, y-range plot
+          main="avg alpha power per condition", # title
+          xlab="time (min)", ylab="power", # labels axes
+           )
+
+lines(unique(avgTime$time),
+      avgTime[avgTime$condition=="hard",]$meanPowOz,
+      lwd=1.5,
+      bg='white', 
+      col=2)
+
+lines(unique(avgTime$time),
+      avgTime[avgTime$condition=="easy",]$meanPowOz,
+      lwd=1.5,
+      bg='white', 
+      col=3)
+
+lines(unique(avgTime$time),
+      avgTime[avgTime$condition=="reflection",]$meanPowOz,
+      lwd=1.5,
+      bg='white', 
+      col=4)
+
+lines(unique(avgTime$time),
+      avgTime[avgTime$condition=="singlepointed",]$meanPowOz,
+      lwd=1.5,
+      bg='white', 
+      col=5)
+
+endpoints <- c(tail(avgTime[avgTime$condition=="hard",]$meanPowOz,n=1),
+               tail(avgTime[avgTime$condition=="easy",]$meanPowOz,n=1),
+               tail(avgTime[avgTime$condition=="reflection",]$meanPowOz,n=1),
+               tail(avgTime[avgTime$condition=="singlepointed",]$meanPowOz,n=1))
+
+# add legend:
+leg <- tapply(avgTime$meanPowOz, list(avgTime$condition), mean)
+text(c(5,5,5,5), endpoints,  labels=names(leg), 
+     adj=0, col=c(2,3,4,5), cex=.85, xpd=TRUE)
+
+```
+
+We see different trends per condition for both alpha and theta.
+
+## PART II: Analyses
+
+
+### T test
+
+**Powerspectrum** (across conditions Fz theta):
+
+```{r}
+t.test(dat2[dat2$condition=="hard",]$thetapower,dat2[dat2$condition=="easy",]$thetapower)
+```
+
+Condition hard, easy significantly differ from each other (t(454.18) = -2.4547, p < 0.05).
+
+```{r}
+t.test(dat2[dat2$condition=="reflection",]$thetapower,dat2[dat2$condition=="easy",]$thetapower)
+```
+
+Condition reflection, easy significantly differ from each other (t(477.88) = -7.1155, p < 0.01).
+
+```{r}
+t.test(dat2[dat2$condition=="singlepointed",]$thetapower,dat2[dat2$condition=="easy",]$thetapower)
+```
+
+Condition singlepointed, easy significantly differ from each other (t(471.36) = -5.2214, p < 0.01).
+
+```{r}
+t.test(dat2[dat2$condition=="hard",]$thetapower,dat2[dat2$condition=="reflection",]$thetapower)
+```
+
+Condition hard, reflection significantly differ from each other (t(457.09) = 5.4239, p < 0.01).
+
+```{r}
+t.test(dat2[dat2$condition=="hard",]$thetapower,dat2[dat2$condition=="singlepointed",]$thetapower)
+```
+
+Condition hard, singlepointed significantly differ from each other (t(471.93) = 3.2365, p < 0.01).
+
+```{r}
+t.test(dat2[dat2$condition=="reflection",]$thetapower,dat2[dat2$condition=="singlepointed",]$thetapower)
+```
+
+Condition reflection, singlepointed significantly differ from each other (t(472.98) = -2.2653, p < 0.05).
+
+Frontal (Fz) theta power across all conditions significantly differ from each other.
+
+
+**Slopes** across conditions Fz theta:
+
+```{r}
+t.test(dat2[dat2$condition=="hard",]$thetapower,dat2[dat2$condition=="easy",]$thetapower)
+t.test(dat2[dat2$condition=="reflection",]$thetapower,dat2[dat2$condition=="easy",]$thetapower)
+t.test(dat2[dat2$condition=="singlepointed",]$thetapower,dat2[dat2$condition=="easy",]$thetapower)
+t.test(dat2[dat2$condition=="hard",]$thetapower,dat2[dat2$condition=="reflection",]$thetapower)
+t.test(dat2[dat2$condition=="hard",]$thetapower,dat2[dat2$condition=="singlepointed",]$thetapower)
+t.test(dat2[dat2$condition=="reflection",]$thetapower,dat2[dat2$condition=="singlepointed",]$thetapower)
+```
+
+Frontal (Fz) theta slopes are not significantly different from each other. (...)
+
+**Powerspectrum** across conditions Oz alpha:
+
+```{r}
+t.test(dat2[dat2$condition=="hard",]$alphapower,dat2[dat2$condition=="easy",]$alphapower)
+```
+
+Condition hard, easy do not significantly differ from each other (t(475.81) = -0.67548, p > 0.05).
+
+```{r}
+t.test(dat2[dat2$condition=="reflection",]$alphapower,dat2[dat2$condition=="easy",]$alphapower)
+```
+
+Condition reflection, easy significantly differ from each other (t(477.89) = -12.513, p < 0.01).
+
+```{r}
+t.test(dat2[dat2$condition=="singlepointed",]$alphapower,dat2[dat2$condition=="easy",]$alphapower)
+```
+
+Condition singlepointed, easy significantly differ from each other (t(477.27) = -8.7412, p < 0.01).
+
+```{r}
+t.test(dat2[dat2$condition=="hard",]$alphapower,dat2[dat2$condition=="reflection",]$alphapower)
+```
+
+Condition hard, reflection significantly differ from each other (t(474.75) = 11.394, p < 0.01).
+
+```{r}
+t.test(dat2[dat2$condition=="hard",]$alphapower,dat2[dat2$condition=="singlepointed",]$alphapower)
+```
+
+Condition hard, singlepointed significantly differ from each other (t(472.63) = 7.7407, p < 0.01).
+
+```{r}
+t.test(dat2[dat2$condition=="reflection",]$alphapower,dat2[dat2$condition=="singlepointed",]$alphapower)
+```
+
+Condition reflection, singlepointed significantly differ from each other (t(477.72) = -3.9493, p < 0.01).
+
+Occipital (Oz) alpha power across all conditions significantly differ from each other, apart from hard, easy.
+
+**Slopes** across conditions Oz alpha:
+
+```{r}
+t.test(dat2[dat2$condition=="hard",]$alphapower,dat2[dat2$condition=="easy",]$alphapower)
+t.test(dat2[dat2$condition=="reflection",]$alphapower,dat2[dat2$condition=="easy",]$alphapower)
+t.test(dat2[dat2$condition=="singlepointed",]$alphapower,dat2[dat2$condition=="easy",]$alphapower)
+t.test(dat2[dat2$condition=="hard",]$alphapower,dat2[dat2$condition=="reflection",]$alphapower)
+t.test(dat2[dat2$condition=="hard",]$alphapower,dat2[dat2$condition=="singlepointed",]$alphapower)
+t.test(dat2[dat2$condition=="reflection",]$alphapower,dat2[dat2$condition=="singlepointed",]$alphapower)
+```
+
+Occipital (Oz) alpha slopes are not significantly different from each other. (...)
+
+### Linear Model
+
+Start with a linear model as a baseline to see if condition affects power.
+
+**Frontal (Fz) theta power** (linear model of frontal (Fz) theta power as a function of condition):
+
+```{r}
+lm0 <- lm(thetapower ~ condition, dat2)
+summary(lm0)
+```
+
+We constructed a linear model of theta power as a function of condition. This model was significant (F(3,956)=22.56, p<0.01). Model only explains ~6% of the data (Multiple R-squared:  0.06611,	Adjusted R-squared:  0.06318). All conditions do affect theta power (p<0.05).
+
+```{r}
+qqnorm(resid(lm0), pch = 1, frame = FALSE)
+qqline(resid(lm0), col = "steelblue", lwd = 2)
+```
+
+Residuals seem somewhat normally distributed (except towards the end), possibly remove outliers?
+
+```{r}
+# residuals are clustered per subject:
+boxplot(resid(lm0) ~ dat2$subject)
+abline(h=0, lwd=.5)
+```
+
+ACF plot, which assesses the correlation between the residuals and the residuals at different lags (for example, Lag 1 models the correlation between consequent residuals, and note that Lag 0 models the correlation with itself – which is always 1).
+
+The plot below shows that the correlation at lag 1 is large - indicating structure in the residuals.
+
+```{r}
+acf(resid(lm0))
+```
+
+Structure in the residuals is not good, because the model assumes that the data is independent, but these observations are not. This may result in anti-conservative estimates (TYPE I errors).
+
+**Occipital (Oz) alpha power** (linear model of occipital (Oz) alpha power as a function of condition):
+
+```{r}
+lmOz <- lm(alphapower ~ condition, dat2)
+summary(lmOz)
+```
+
+We constructed a linear model of alpha power as a function of condition. This model was significant (F(3,956)=73, p<0.01). Model only explains ~18% of the data (Multiple R-squared:  0.1864,	Adjusted R-squared:  0.1838). All conditions do affect alpha power (p<0.01), apart from easy (p > 0.05).
+
+```{r}
+qqnorm(resid(lmOz), pch = 1, frame = FALSE)
+qqline(resid(lmOz), col = "steelblue", lwd = 2)
+```
+
+Residuals seem somewhat normally distributed.
+
+```{r}
+# residuals are clustered per subject:
+boxplot(resid(lmOz) ~ dat2$subject)
+abline(h=0, lwd=.5)
+```
+
+ACF plot, which assesses the correlation between the residuals and the residuals at different lags (for example, Lag 1 models the correlation between consequent residuals, and note that Lag 0 models the correlation with itself – which is always 1).
+
+The plot below shows that the correlation at lag 1 is large - indicating structure in the residuals.
+
+```{r}
+acf(resid(lmOz))
+```
+
+Structure in the residuals is not good, because the model assumes that the data is independent, but these observations are not.
+
+### LME Analysis
+
+Therefore, LME are a better solution to the problem. This method allows to generalize over the measured subjects so that we can draw conclusions for the population.
+
+For the LME analysis we first start with a baseline model that includes a random intercept for both clustering/grouping predictors Subject and Item and interaction between the predictors Type and Training, with ACC as the dependent variable. We then try to improve this baseline model by including more and more complex random effects. With each addition we will check if the extra complexity significantly improves the model by means of ANOVA. After we have determined the random effects, we go on to the fixed effects, where we will be using backward model fitting to determine the best fixed effects structure.
+
+**Random intercepts Fz** (intercept-adjustments per subject)
+
+```{r}
+lme1 <- lmer(thetapower ~ condition + (1|subject), data=dat2)
+summary(lme1)
+```
+
+The intercept is the estimated logit value when condition is hard. The random intercepts for subject change the model estimates in that for each participant and item the regression lines (estimated correct responses for all conditions) are increased or decreased with the random intercept adjustment. Note that these adjustments are independent of conditions. The most important intercept shows more variation than other intercepts.
+
+**Random slopes Fz** (slope-adjustments per subject)
+
+Check for random slopes: only predictors that are varied within the clustering/grouping predictor, can be included as random slopes.
+
+For random slopes we could use the predictors condition for both subject.
+
+Random slopes could be added in (at least) two different ways: `1+Slope` or `0+Slope`. By using `1+X|Group` a random intercept for group is fitted, and a slope which captures the difference between the levels of `X` (in case of higher number of categories, the number of dummy-predictor slopes will increase, of course). By using `0+X|Group` random intercepts for each group are fitted, one for each level of `X`. (So no differences here.)
+
+```{r}
+lme2 <- lmer(thetapower ~ condition + (0+condition|subject), data=dat2)
+#summary(lme2)
+
+VarCorr(lme2)
+
+# visualization of correlation:
+re <- ranef(lme2)[[1]]
+#head(re) # check random effect values
+#plot(re[,1], re[,2],main="lme2")
+#plot(re[,1], re[,3])
+#plot(re[,1], re[,4])
+#plot(re[,2], re[,3])
+#plot(re[,2], re[,4])
+#plot(re[,3], re[,4])
+
+# Alternative
+lme3 <- lmer(thetapower ~ condition + (1+condition|subject), data=dat2)
+#summary(lme3)
+
+VarCorr(lme3)
+
+# visualization of correlation:
+re <- ranef(lme3)[[1]]
+#head(re) # check random effect values
+#plot(re[,1], re[,2],main="lme3")
+#plot(re[,1], re[,3])
+#plot(re[,1], re[,4])
+#plot(re[,2], re[,3])
+#plot(re[,2], re[,4])
+#plot(re[,3], re[,4])
+```
+
+`lme2` has shows less correlation than `lme3`.
+
+```{r}
+anova(lme1, lme2, refit=FALSE)
+diff(AIC(lme1, lme2)[,'AIC'])
+```
+
+The random slope for condition by subject does significantly improve the modelfit ($\chi^2$(9)=359.18, p<.01;$\Delta$AIC=341.1836).
+
+```{r}
+summary(lme2)
+```
+
+Check model assumptions:
+
+```{r}
+qqnorm(resid(lme2))
+qqline(resid(lme2))
+#check_normaldist(resid(lme2))
+```
+
+From the plot we can see that the residuals are somewhat/mostly normally distributed.
+
+```{r}
+plot(lme2)
+```
+
+We see some non-linearity. Perhaps a GAMM model could account for this.
+
+```{r}
+acf(resid(lme2))
+```
+
+A lot less lag than linear model (`lm0`).
+
+**Random intercepts Oz** (intercept-adjustments per subject)
+
+```{r}
+lme1Oz <- lmer(alphapower ~ condition + (1|subject), data=dat2)
+summary(lme1Oz)
+```
+
+The intercept is the estimated logit value when condition is hard. The random intercepts for subject change the model estimates in that for each participant and item the regression lines (estimated correct responses for all conditions) are increased or decreased with the random intercept adjustment. Note that these adjustments are independent of conditions. The most important intercept shows more variation than other intercepts.
+
+**Random slopes Oz** (slope-adjustments per subject)
+
+```{r}
+lme2Oz <- lmer(alphapower ~ condition + (0+condition|subject), data=dat2)
+#summary(lme2Oz)
+
+VarCorr(lme2Oz)
+
+# visualization of correlation:
+re <- ranef(lme2Oz)[[1]]
+#head(re) # check random effect values
+#plot(re[,1], re[,2],main="lme2Oz")
+#plot(re[,1], re[,3])
+#plot(re[,1], re[,4])
+#plot(re[,2], re[,3])
+#plot(re[,2], re[,4])
+#plot(re[,3], re[,4])
+
+# Alternative
+lme3Oz <- lmer(alphapower ~ condition + (1+condition|subject), data=dat2)
+#summary(lme3Oz)
+
+VarCorr(lme3Oz)
+
+# visualization of correlation:
+re <- ranef(lme3Oz)[[1]]
+#head(re) # check random effect values
+#plot(re[,1], re[,2],main="lme3Oz")
+#plot(re[,1], re[,3])
+#plot(re[,1], re[,4])
+#plot(re[,2], re[,3])
+#plot(re[,2], re[,4])
+#plot(re[,3], re[,4])
+```
+
+`lme2Oz` has shows less correlation than `lme3Oz`.
+
+```{r}
+anova(lme1Oz, lme2Oz, refit=FALSE)
+diff(AIC(lme1Oz, lme2Oz)[,'AIC'])
+```
+
+Random slope for condition by subject does significantly improve the modelfit ($\chi^2$(9)=407.95, p<.01;$\Delta$AIC=389.9523).
+
+```{r}
+summary(lme2Oz)
+```
+
+Check model assumptions:
+
+```{r}
+qqnorm(resid(lme2Oz))
+qqline(resid(lme2Oz))
+#check_normaldist(resid(lme2Oz))
+```
+
+From the plot we can see that the residuals are somewhat/mostly normally distributed.
+
+```{r}
+plot(lme2Oz)
+```
+
+We see some non-linearity. Perhaps a GAMM model could account for this.
+
+```{r}
+acf(resid(lme2Oz))
+```
+
+A lot less lag than linear model (`lm0Oz`).
+
+### GAMM Analysis
+
+We have established clustering and (possibly) nonlinearity, thus we will try to improve the LME model. Therefore we do not start off with a (linear) from scratch model for the GAMM model, but rather try to establish (a better) random effects structure (that might account for nonlinearity). After each addition to the model, we will check whether the added complexity is warranted/required. After we have established the random effects structure, we will establish the fixed effects structure using a backward fitting model comparison. We use `bam` instead of `gam` for time and computational power reasons, however `gam` is recommended instead for these smaller datasets.
+
+**Baseline GAMM** (implement LME as GAMM Fz theta):
+
+```{r}
+# nonlinear interaction between condition and time
+g0 <- bam( thetapower ~ condition + s(time, by=condition) , data=dat2)
+summary(g0)
+```
+
+From the parametric coefficients, we can conclude that the intercept for hard is at -1.55204 which is significantly different from 0 (p < 0.01), the intercepts for the other conditions do significantly differ from hard (easy: p < 0.05; hard, reflection, singlepointed: p < 0.01). Nonlinear interaction between time and condition is not significant for any condition (p > 0.05) and (mostly) linear (edf ~1). Model explains only ~7% of the data.
+
+```{r}
+g1 <- bam( thetapower ~ condition + s(time, by=condition)
+           # (potential) nonlinear difference over time wrt the general pattern for each subject
+           # by condition
+           + s(time, subject, by=condition, bs="fs", m=1) # factor smooth
+           , data=dat2)
+summary(g1)
+```
+
+From the summary we can conclude that the effects of condition and time for the smooth terms between time and condition hard is significantly different (p < 0.05) and nonlinear (edf > 1). Meaning that for these conditions, with time, the theta power progresses in a nonlinear trend differently. Whereas for easy, reflection and singlepointed it’s (more) linear (edf ~1) and is not significantly different (p > 0.05). Furthermore the factor smooths over time per subject by condition contribute to the model (p < 0.01) for all conditions. From the parametric coefficients, we can conclude that the intercept for hard is at -1.55204 which is significantly different from 0 (p < 0.01), the intercepts for easy, reflection and singlepointed do not significantly differ from hard (p > 0.05). Model explains ~68% of the data. 
+
+```{r}
+compareML(g0, g1)
+```
+
+The model comparison indicates that the interaction is significantly improving the explained deviance, even though this costs 8 degrees of freedom ($\chi$2(8)=331.571; p<.01; $\Delta$ AIC=801.19).
+
+```{r}
+par(mfrow=c(2,2))
+gam.check(g1)
+```
+
+The residuals are normally distributed. We do see some structure in the residuals.
+
+```{r}
+plot(fitted(g1), resid(g1))
+abline(h=0)
+```
+
+Some structure in the residuals.
+
+```{r}
+plot(dat2$time, resid(g1))
+abline(h=0)
+```
+
+Centering around the mean? 
+
+```{r}
+acf(resid(g1))
+```
+
+The autocorrelation is minimal, based on the acf value for the first lag.
+
+```{r}
+plot_smooth(g1, view="time", plot_all="condition")
+```
+
+The theta power over time seems to show different trends for conditions hard and easy (increasing), compared to reflection and singlepointed ((very) slowly decreasing). The power starting point/offset and overall power value over time seems to be different for each type. Where easy has the highest power overall, hard higher than singlepointed higher than reflection. However all conditions over time seem to (somewhat) overlap with each other so they might not all be significantly different from each other.
+
+
+```{r}
+plot_diff(g1, view="time", comp=list(condition=c("hard", "easy")))
+```
+
+Hard and easy not significantly different from each other. As expected, hard and easy are both monastic debate, just varying in difficulty of topic.
+
+```{r}
+plot_diff(g1, view="time", comp=list(condition=c("hard", "reflection")))
+```
+
+Hard and reflection are not significantly different.
+
+```{r}
+plot_diff(g1, view="time", comp=list(condition=c("hard", "singlepointed")))
+```
+
+Hard, singlepointed are not significantly different.
+
+```{r}
+plot_diff(g1, view="time", comp=list(condition=c("easy", "reflection")))
+```
+
+Easy and reflection significantly differ from each other between 2.83 - 4.65 min.
+
+```{r}
+plot_diff(g1, view="time", comp=list(condition=c("easy", "singlepointed")))
+```
+
+Easy, singlepointed do not significantly differ from each other.
+
+```{r}
+plot_diff(g1, view="time", comp=list(condition=c("singlepointed", "reflection")))
+```
+
+Singlepointed, reflection are not significantly different from each other over time.
+
+```{r}
+diff(AIC(g1,lme2)[,'AIC'])
+```
+
+GAMM model is the better modelfit, based on AIC score ($\Delta$AIC=204.7002).
+
+```{r}
+# lmer(thetapower ~ condition + (0+condition|subject), data=dat2)
+
+# nonlinear interaction between time and condition
+# + random slope for subject
+g0 <- bam(thetapower ~ condition + s(time,by=condition) 
+          + s(subject,bs="re") 
+          , data=dat2)
+summary(g0)
+```
+
+All conditions are significant (p < 0.01), nonlinear interaction between time and condition is only significant for the nonlinear interaction between time and condition hard (p < 0.05), random slope for subject is also significant (p < 0.01).
+
+```{r}
+g1 <- bam(thetapower ~ condition + s(time,by=condition) 
+          + s(subject,bs="re") 
+          + s(subject,condition,bs="re")
+          , data=dat2)
+```
+
+**Baseline GAMM** (implement LME as GAMM Oz alpha):
+
+```{r}
+# nonlinear interaction between condition and time
+g0Oz <- bam( alphapower ~ condition + s(time, by=condition) , data=dat2)
+summary(g0Oz)
+```
+
+From the parametric coefficients, we can conclude that the intercept for hard is at -1.29280 which is significantly different from 0 (p < 0.01), the intercepts for reflection and singlepointed do significantly differ from hard (p < 0.01), the intercept for easy does not significantly differ from hard (p > 0.05). Nonlinear interaction between time and condition is not significant for any condition (p > 0.05) and linear (edf=1). Model explains ~18% of the data.
+
+```{r}
+g1Oz <- bam( alphapower ~ condition + s(time, by=condition)
+           # (potential) nonlinear difference over time wrt the general pattern for each subject
+           # by condition
+           + s(time, subject, by=condition, bs="fs", m=1) # factor smooth
+           , data=dat2)
+summary(g1Oz)
+```
+
+From the summary we can conclude that the effects of condition and time for the smooth terms between time and condition is not significantly different for any condition (p < 0.05) and linear (edf ~1) for most apart for easy which is nonlinear (edf > 1). Furthermore the factor smooths over time per subject by condition contribute to the model (p < 0.01) for all conditions. From the parametric coefficients, we can conclude that the intercept for hard is at -1.29280 which is significantly different from 0 (p < 0.01), the intercepts for reflection and singlepointed do significantly differ from hard (p < 0.01, p < 0.05), the intercept for easy does not significantly differ from hard (p > 0.05). Model explains ~63% of the data. 
+
+```{r}
+compareML(g0Oz, g1Oz)
+```
+
+The model comparison indicates that the interaction is significantly improving the explained deviance, even though this costs 8 degrees of freedom ($\chi$2(8)=261.672; p<.01; $\Delta$ AIC=619.89).
+
+```{r}
+par(mfrow=c(2,2))
+gam.check(g1Oz)
+```
+
+The residuals are normally distributed. We do see some structure in the residuals.
+
+```{r}
+plot(fitted(g1Oz), resid(g1Oz))
+abline(h=0)
+```
+
+Some structure in the residuals.
+
+```{r}
+plot(dat2$time, resid(g1Oz))
+abline(h=0)
+```
+
+Centering around the mean? 
+
+```{r}
+acf(resid(g1Oz))
+```
+
+The autocorrelation is minimal, based on the acf value for the first lag.
+
+```{r}
+plot_smooth(g1Oz, view="time", plot_all="condition")
+```
+
+The power over time seems to show different trends for conditions: hard: linear increasing, easy: nonlinear, reflection: linear increasing, singlepointed: (mostly) linear decreasing. The power starting point/offset and overall power value over time seems to be different for each condition. Where easy has the highest power start off power, hard highest end point, singlepointed higher than reflection. However all conditions over time seem to (somewhat) overlap with each other so they might not (all) be significantly different from each other.
+
+
+```{r}
+plot_diff(g1Oz, view="time", comp=list(condition=c("hard", "easy")))
+```
+
+Hard and easy not significantly different from each other. As expected, hard and easy are both monastic debate, just varying in difficulty of topic.
+
+```{r}
+plot_diff(g1Oz, view="time", comp=list(condition=c("hard", "reflection")))
+```
+
+Hard and reflection are significantly different over all timepoints.
+
+```{r}
+plot_diff(g1Oz, view="time", comp=list(condition=c("hard", "singlepointed")))
+```
+
+Hard, singlepointed significantly different from 1.583333 onwards.
+
+```{r}
+plot_diff(g1Oz, view="time", comp=list(condition=c("easy", "reflection")))
+```
+
+Easy and reflection significantly differ from each other.
+
+```{r}
+plot_diff(g1Oz, view="time", comp=list(condition=c("easy", "singlepointed")))
+```
+
+Easy, singlepointed do significantly differ from each other between 0.000000 - 4.558081.
+
+```{r}
+plot_diff(g1Oz, view="time", comp=list(condition=c("singlepointed", "reflection")))
+```
+
+Singlepointed, reflection are not significantly different from each other over time.
+
+```{r}
+diff(AIC(g1Oz,lme2Oz)[,'AIC'])
+```
+
+GAMM model is the better modelfit, based on AIC score ($\Delta$AIC=133.9125).
+
+### Conclusion
+
+**Frontal (Fz) theta**
+Monastic debate in general does not significantly differ from the other types of meditation (self-debate/analytical meditation, mindfulness). Only when the monastic debate topic is easy compared to midfulness do we see a significant difference over time. As expected the difficulty of the topic in monastic debate does not seem to lead to a significant difference over time. Self-debate/analytical meditation does not significantly differ from mindfulness over time either. This could be expected since both meditation forms are similar in the sense that they are practices alone, opposed to monastic debate, however they do differ from each other in terms of practice, goal and use.
+
+**Occipital (Oz) alpha**
+Monastic debate conditions hard, easy do not significantly differ from each other, as expected since they're the same meditation type/form. Monastic debate *vs.* other forms (self-debate/analytical debate, mindfulness) also significantly differ from each other, as expected. Non monastic debate forms (self-debate/analytical meditation) do not significantly differ from each other. These meditation types/forms are more similar in the sense that they are practised alone, however the type/goal of the meditation forms are different.
+
+Frontal (Fz) theta and occipital (Oz) alpha seem to have some conflicting results. Where for Oz alpha monastic debate does significantly differ from the other types of meditation, however for frontal theta this is only the case when in monastic debate the topic is easy, compared to mindfulness. We do see agreement in that the non monastic debate types/forms of meditation do not significantly differ from each other. From this we can conclude that at least for Fz theta and Oz alpha oscillations self-debate/analytical meditation and mindfulness are similar (based on power). This similarity could be partially explained by the way individual analytical debate is being practiced as it this reasoning-based form of sitting meditation is sometimes alternated with resting meditation without any particular object of focus, which is thought to allow new insights to consolidate and become embodied @desbordes2013new, @kongtrul2003chidon.
+
+### Limiations & Future work
+
+Only two electrodes. Best models only explain ~65% of the data (on average). Extensively optimize the models to get the best performance. More research to be done on more electrodes in the same frequencies and frontal, occipital regions. Possibily inlcude more regions of interest, related to meditation. Construct a computational model using ML to differ between the conditions.
+
+
