@@ -1,4 +1,5 @@
 % read in continuous data
+% get powspec in continuousFreqAnalysis.m
 
 % singlepointed
 icDataDir = '/Users/roydavid/Downloads/Monks/singlepointed/components/';
@@ -14,7 +15,7 @@ fileroots = {'c284d283r','c286d285r','c287d288r','c292d291r','c294d293r','c295d2
 
 
 relevantChannels = {'1-A1','1-A2','1-A3','1-A4','1-A5','1-A6','1-A7','1-A8','1-A9','1-A10','1-A11','1-A12','1-A13','1-A14','1-A15','1-A16','1-A17','1-A18','1-A19','1-A20','1-A21','1-A22','1-A23','1-A24','1-A25','1-A26','1-A27','1-A28','1-A29','1-A30','1-A31','1-A32','1-EXG1','1-EXG2','1-EXG3','1-EXG4','1-EXG5','1-EXG6','1-EXG7','1-EXG8','2-A1','2-A2','2-A3','2-A4','2-A5','2-A6','2-A7','2-A8','2-A9','2-A10','2-A11','2-A12','2-A13','2-A14','2-A15','2-A16','2-A17','2-A18','2-A19','2-A20','2-A21','2-A22','2-A23','2-A24','2-A25','2-A26','2-A27','2-A28','2-A29','2-A30','2-A31','2-A32','2-EXG1','2-EXG2','2-EXG3','2-EXG4','2-EXG5','2-EXG6','2-EXG7','2-EXG8'};
-% trialDur = 1; % divide into 1 second trials
+trialDur = 15; % divide into 15 second trials
 resampledRate = 256; %Hz
 preStimTime = 0.5;
 
@@ -78,8 +79,8 @@ for f = 1:length(fileroots)
   cfg = [];
   cfg.component = [1 ];
   % load ic components
-  cd(icDataDir)
-  load([fileroot 'ic_s1.mat']);
+%   cd(icDataDir)
+%   load([fileroot 'ic_s1.mat']);
   fprintf('check components to remove')
   keyboard
   data_iccleanedA = ft_rejectcomponent(cfg, ic_dataA);
@@ -106,7 +107,7 @@ for f = 1:length(fileroots)
   cfg.component = [1 ];
   % load ic components
 %   cd(icDataDir)
-  load([fileroot 'ic_s2.mat']);
+%   load([fileroot 'ic_s2.mat']);
   fprintf('check components to remove')
   keyboard
   data_iccleanedB = ft_rejectcomponent(cfg, ic_dataB);
@@ -124,7 +125,7 @@ for f = 1:length(fileroots)
   data_iccleanedBreref = ft_preprocessing(cfg,data_iccleanedB);  
   
   
-  % define events every two seconds
+  % define events every trialDur seconds
   cfg = [];
   trialDurSamples = fix(trialDur*resampledRate);
   preStimTimeSamples = fix(preStimTime*resampledRate);
@@ -144,7 +145,8 @@ for f = 1:length(fileroots)
   
   % save the data
   cd(cleanDataDir);
-  outFile = [fileroot 'clean.mat'];
+%   outFile = [fileroot 'clean.mat'];
+  outFile = [fileroot 'clean' int2str(trialDur) 's.mat'];
   keyboard
   save(outFile,'data_iccleanedA','data_iccleanedB');
   
